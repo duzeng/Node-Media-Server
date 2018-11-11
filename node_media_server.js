@@ -15,18 +15,28 @@ const context = require('./node_core_ctx');
 const Package = require("./package.json");
 
 class NodeMediaServer {
+  /**
+   * 构造函数
+   * @param {* 配置项} config 
+   */
   constructor(config) {
     this.config = config;
   }
 
+  /**
+   * 实例运行入口方法
+   */
   run() {
+    //配置日志级别
     Logger.setLogType(this.config.logType);
     Logger.log(`Node Media Server v${Package.version}`);
+    //配置项rtmp
     if (this.config.rtmp) {
       this.nrs = new NodeRtmpServer(this.config);
       this.nrs.run();
     }
 
+    //配置项http
     if (this.config.http) {
       this.nhs = new NodeHttpServer(this.config);
       this.nhs.run();
@@ -59,6 +69,7 @@ class NodeMediaServer {
       Logger.error('uncaughtException', err);
     });
 
+    //客户端请求npmjs服务端，查询是否有更新版本
     Https.get("https://registry.npmjs.org/node-media-server", function (res) {
       let size = 0;
       let chunks = [];
@@ -80,10 +91,12 @@ class NodeMediaServer {
     });
   }
 
+  //事件挂接函数
   on(eventName, listener) {
     context.nodeEvent.on(eventName, listener);
   }
 
+  //服务停止接口函数
   stop() {
     if (this.nrs) {
       this.nrs.stop();

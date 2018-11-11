@@ -15,8 +15,11 @@ const RTMP_PORT = 1935;
 
 class NodeRtmpServer {
   constructor(config) {
+    //短路操作 config.rtmp.port || RTMP_PORT
     config.rtmp.port = this.port = config.rtmp.port ? config.rtmp.port : RTMP_PORT;
+    // TCP server
     this.tcpServer = Net.createServer((socket) => {
+      //单个连接上后新建session
       let session = new NodeRtmpSession(config, socket);
       session.run();
     })
@@ -26,7 +29,7 @@ class NodeRtmpServer {
     this.tcpServer.listen(this.port, () => {
       Logger.log(`Node Media Rtmp Server started on port: ${this.port}`);
     });
-
+    //建议将事件监听挪至listen之前
     this.tcpServer.on('error', (e) => {
       Logger.error(`Node Media Rtmp Server ${e}`);
     });

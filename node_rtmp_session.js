@@ -17,6 +17,9 @@ const Logger = require('./node_core_logger');
 
 const N_CHUNK_STREAM = 8;
 const RTMP_VERSION = 3;
+/**
+ * 握手包的C1S1 C2S2均为1536字节
+ */
 const RTMP_HANDSHAKE_SIZE = 1536;
 const RTMP_HANDSHAKE_UNINIT = 0;
 const RTMP_HANDSHAKE_0 = 1;
@@ -110,11 +113,20 @@ class NodeRtmpSession {
     this.ip = socket.remoteAddress;
     this.TAG = 'rtmp';
 
+    /**
+     * 握手数据负载
+     */
     this.handshakePayload = Buffer.alloc(RTMP_HANDSHAKE_SIZE);
+    /**
+     * 当前握手步骤中 进行到第几个步
+     */
     this.handshakeState = RTMP_HANDSHAKE_UNINIT;
     this.handshakeBytes = 0;
 
     this.parserBuffer = Buffer.alloc(MAX_CHUNK_HEADER);
+    /**
+     * 当前消息分析步骤中 进行到第几步
+     */
     this.parserState = RTMP_PARSE_INIT;
     this.parserBytes = 0;
     this.parserBasicBytes = 0;
@@ -179,10 +191,12 @@ class NodeRtmpSession {
   }
 
   run() {
+    //客户端连接的socket配置
     this.socket.on('data', this.onSocketData.bind(this));
     this.socket.on('close', this.onSocketClose.bind(this));
     this.socket.on('error', this.onSocketError.bind(this));
     this.socket.on('timeout', this.onSocketTimeout.bind(this));
+    //当 socket 在 timeout 毫秒不活动之后将其设置为超时状态。默认 net.Socket 没有超时。
     this.socket.setTimeout(this.pingTimeout);
     this.isStarting = true;
   }
@@ -242,16 +256,23 @@ class NodeRtmpSession {
     this.stop();
   }
 
+  /**
+   * 数据接收处理
+   * @param {* Buffer 或 String 数据编码由 socket.setEncoding() 设置} data 
+   */
   onSocketData(data) {
     let bytes = data.length;
     let p = 0;
     let n = 0;
     while (bytes > 0) {
+      //客户端一般是C0+C1一并发出，共1537字节
       switch (this.handshakeState) {
         case RTMP_HANDSHAKE_UNINIT:
           // Logger.log('RTMP_HANDSHAKE_UNINIT');
           this.handshakeState = RTMP_HANDSHAKE_0;
           this.handshakeBytes = 0;
+          //C0 版本
+          const C0=Buffer.from([data[0]]);
           bytes -= 1;
           p += 1;
           break;
@@ -259,6 +280,7 @@ class NodeRtmpSession {
           // Logger.log('RTMP_HANDSHAKE_0');
           n = RTMP_HANDSHAKE_SIZE - this.handshakeBytes;
           n = n <= bytes ? n : bytes;
+          // copy --> target targetStart srouceStart sourceEnd
           data.copy(this.handshakePayload, this.handshakeBytes, p, p + n);
           this.handshakeBytes += n;
           bytes -= n;
@@ -395,6 +417,7 @@ class NodeRtmpSession {
         case RTMP_PARSE_INIT:
           this.parserBytes = 1;
           this.parserBuffer[0] = data[p + offset++];
+          //第一个字节除去最高两位后 表示chunk basic header要占用的字节 0表示要占2字节  1表示要占3字节 2表示chunk是控制信息和命令信息
           if (0 === (this.parserBuffer[0] & 0x3F)) {
             this.parserBasicBytes = 2;
           } else if (1 === (this.parserBuffer[0] & 0x3F)) {
@@ -413,7 +436,9 @@ class NodeRtmpSession {
           }
           break;
         case RTMP_PARSE_MESSAGE_HEADER:
+          //第一个字节的高两位 fmt(chunk type ) 表示Message Header占用 0->11 1->7 2->3 3->0
           size = rtmpHeaderSize[this.parserBuffer[0] >> 6] + this.parserBasicBytes;
+          //parserBuffer即CH=hunk Header为Basic Header + Message Header + Extended Timestamp，所以最大为3+11+4=18
           while (this.parserBytes < size && offset < bytes) {
             this.parserBuffer[this.parserBytes++] = data[p + offset++];
           }
@@ -506,6 +531,7 @@ class NodeRtmpSession {
     let offset = this.parserBasicBytes;
 
     // timestamp / delta
+    //格式2以下都有timestamp ,格式3则表示message header为0字节，所以不用解析
     if (this.parserPacket.header.fmt <= RTMP_CHUNK_TYPE_2) {
       this.parserPacket.header.timestamp = this.parserBuffer.readUIntBE(offset, 3);
       offset += 3;
@@ -513,12 +539,16 @@ class NodeRtmpSession {
 
     // message length + type
     if (this.parserPacket.header.fmt <= RTMP_CHUNK_TYPE_1) {
+      //3字节 表示实际发送的消息的数据如音频帧、视频帧等数据的长度，单位是字节
+      //注意这里是Message的长度，也就是chunk属于的Message的总数据长度，而不是chunk本身Data的数据的长度。
       this.parserPacket.header.length = this.parserBuffer.readUIntBE(offset, 3);
+      //1个字节 表示实际发送的数据的类型，如8代表音频数据、9代表视频数据。
       this.parserPacket.header.type = this.parserBuffer[offset + 3];
       offset += 4;
     }
 
     if (this.parserPacket.header.fmt === RTMP_CHUNK_TYPE_0) {
+      //表示该chunk所在的流的ID，和Basic Header的CSID一样，它采用小端存储的方式
       this.parserPacket.header.stream_id = this.parserBuffer.readUInt32LE(offset);
       offset += 4;
     }
@@ -534,21 +564,35 @@ class NodeRtmpSession {
 
   rtmpHandler() {
     switch (this.parserPacket.header.type) {
+      /* 协议控制消息 Chunk Stream  ID = 0x02 && Message Stream ID = 0 */
+      //Set Chunk Size(Message Type ID=1)
       case RTMP_TYPE_SET_CHUNK_SIZE:
+      //Abort Message(Message Type ID=2)
       case RTMP_TYPE_ABORT:
+      //Acknowledgement(Message Type ID=3)
       case RTMP_TYPE_ACKNOWLEDGEMENT:
+      //Window Acknowledgement Size(Message Type ID=5)
       case RTMP_TYPE_WINDOW_ACKNOWLEDGEMENT_SIZE:
+      //Set Peer Bandwidth(Message Type ID=6)
       case RTMP_TYPE_SET_PEER_BANDWIDTH:
         return 0 === this.rtmpControlHandler() ? -1 : 0;
+      /* 协议控制消息 Chunk Stream  ID = 0x02 && Message Stream ID = 0 */
+
+      //User Control Message Events(用户控制消息)
+      //Message Stream ID=0,Chunk Stream Id= 0x02,Message Type Id=0x04
       case RTMP_TYPE_EVENT:
         return 0 === this.rtmpEventHandler() ? -1 : 0;
+      //Audio Message（音频信息，Message Type ID＝8)
       case RTMP_TYPE_AUDIO:
         return this.rtmpAudioHandler();
+      //Video Message（视频信息，Message Type ID＝9）
       case RTMP_TYPE_VIDEO:
         return this.rtmpVideoHandler();
+      //Command Message(命令消息，Message Type ID＝17或20)
       case RTMP_TYPE_FLEX_MESSAGE:
       case RTMP_TYPE_INVOKE:
         return this.rtmpInvokeHandler();
+      //Data Message（数据消息，Message Type ID＝15或18)
       case RTMP_TYPE_FLEX_STREAM:// AMF3
       case RTMP_TYPE_DATA: // AMF0
         return this.rtmpDataHandler();

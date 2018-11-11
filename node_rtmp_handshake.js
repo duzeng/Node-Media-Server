@@ -7,8 +7,17 @@ const Logger = require('./node_core_logger');
 
 const Crypto = require('crypto');
 
+/**
+ * 简单握手
+ */
 const MESSAGE_FORMAT_0 = 0;
+/**
+ * 复杂握手的schema1 即 digest块在key块之前
+ */
 const MESSAGE_FORMAT_1 = 1;
+/**
+ * 复杂握手的schema0 即 key块在digest块之前
+ */
 const MESSAGE_FORMAT_2 = 2;
 
 const RTMP_SIG_SIZE = 1536;
@@ -47,14 +56,19 @@ function GetServerGenuineConstDigestOffset(buf) {
 
 function detectClientMessageFormat(clientsig) {
   let computedSignature, msg, providedSignature, sdl;
+  // schema0 digest 的offset?
   sdl = GetServerGenuineConstDigestOffset(clientsig.slice(772, 776));
+  //C1 除了digest data (32 字节)外剩余拼接起来的
   msg = Buffer.concat([clientsig.slice(0, sdl), clientsig.slice(sdl + SHA256DL)], 1504);
+  //C1 joined 加 FPKey (Genuine Adobe Flash Player 001) 计算
   computedSignature = calcHmac(msg, GenuineFPConst);
   providedSignature = clientsig.slice(sdl, sdl + SHA256DL);
   if (computedSignature.equals(providedSignature)) {
     return MESSAGE_FORMAT_2;
   }
+  // scheme1 digest offset
   sdl = GetClientGenuineConstDigestOffset(clientsig.slice(8, 12));
+  //C1除了digest data掐头去尾的剩余字节
   msg = Buffer.concat([clientsig.slice(0, sdl), clientsig.slice(sdl + SHA256DL)], 1504);
   computedSignature = calcHmac(msg, GenuineFPConst);
   providedSignature = clientsig.slice(sdl, sdl + SHA256DL);
@@ -65,7 +79,10 @@ function detectClientMessageFormat(clientsig) {
 }
 
 function generateS1(messageFormat) {
+  //生成加密强伪随机数据
+  //生成除 time + version 的8字节 以外的随机字节缓冲
   let randomBytes = Crypto.randomBytes(RTMP_SIG_SIZE - 8);
+  //拼接time+version
   let handshakeBytes = Buffer.concat([Buffer.from([0, 0, 0, 0, 1, 2, 3, 4]), randomBytes], RTMP_SIG_SIZE);
 
   let serverDigestOffset
@@ -75,8 +92,11 @@ function generateS1(messageFormat) {
     serverDigestOffset = GetServerGenuineConstDigestOffset(handshakeBytes.slice(772, 776));
   }
 
+  //S1 joined （即除去digest data掐头去尾的字节）
   msg = Buffer.concat([handshakeBytes.slice(0, serverDigestOffset), handshakeBytes.slice(serverDigestOffset + SHA256DL)], RTMP_SIG_SIZE - SHA256DL);
+  // S1 joined 加 FMSKey (Genuine Adobe Flash Media Server 001) 计算 哈希
   hash = calcHmac(msg, GenuineFMSConst);
+  //将计算出的hash即digest data 填充进相应位置()
   hash.copy(handshakeBytes, serverDigestOffset, 0, 32);
   return handshakeBytes;
 }
@@ -89,22 +109,32 @@ function generateS2(messageFormat, clientsig, callback) {
   } else {
     challengeKeyOffset = GetServerGenuineConstDigestOffset(clientsig.slice(772, 776));
   }
+  //计算C1的digest data 32字节
   let challengeKey = clientsig.slice(challengeKeyOffset, challengeKeyOffset + 32);
+  //C1 digest data + FMSKey (68字节) 计算临时key
   let hash = calcHmac(challengeKey, GenuineFMSConstCrud);
+  //S2的random dta+ 临时key 计算 S2的digestdata
   let signature = calcHmac(randomBytes, hash);
   let s2Bytes = Buffer.concat([randomBytes, signature], RTMP_SIG_SIZE);
   return s2Bytes
 }
 
+/**
+ * 生成握手协议中的S0 S1 S2
+ * @param {*} clientsig 
+ */
 function generateS0S1S2(clientsig) {
+  //C0 固定为03 版本号
   let clientType = Buffer.alloc(1, 3);
   let messageFormat = detectClientMessageFormat(clientsig);
   let allBytes;
+  //
   if (messageFormat === MESSAGE_FORMAT_0) {
     //    Logger.debug('[rtmp handshake] using simple handshake.');
     allBytes = Buffer.concat([clientType, clientsig, clientsig]);
   } else {
     //    Logger.debug('[rtmp handshake] using complex handshake.');
+    //生成S2即是对C1的验证（1504 随机字节+ 32字节 signature)
     allBytes = Buffer.concat([clientType, generateS1(messageFormat), generateS2(messageFormat, clientsig)]);
   }
   return allBytes;
