@@ -74,7 +74,7 @@ const RTMP_TYPE_INVOKE = 20; // AMF0
 
 /* Aggregate Message */
 const RTMP_TYPE_METADATA = 22;
-
+//RTMP包默认最大长度
 const RTMP_CHUNK_SIZE = 128;
 const RTMP_PING_TIME = 60000;
 const RTMP_PING_TIMEOUT = 30000;
