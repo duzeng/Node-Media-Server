@@ -45,6 +45,11 @@ A Node.js implementation of RTMP/HTTP-FLV/WS-FLV/HLS/DASH Media Server
 - [ ] support webrtc 
  
 # Usage 
+## docker version (only_linux_x64)
+```bash
+docker run --name nms -d -p 1935:1935 -p 8000:8000 illuspas/node-media-server
+```
+
 ## git version
 ```bash
 mkdir nms
@@ -168,7 +173,7 @@ http://localhost:8000/live/STREAM_NAME/index.mpd
 ## via flv.js over http-flv
 
 ```html
-<script src="https://cdn.bootcss.com/flv.js/1.4.0/flv.min.js"></script>
+<script src="https://cdn.bootcss.com/flv.js/1.5.0/flv.min.js"></script>
 <video id="videoElement"></video>
 <script>
     if (flvjs.isSupported()) {
@@ -187,7 +192,7 @@ http://localhost:8000/live/STREAM_NAME/index.mpd
 ## via flv.js over websocket-flv
 
 ```html
-<script src="https://cdn.bootcss.com/flv.js/1.4.0/flv.min.js"></script>
+<script src="https://cdn.bootcss.com/flv.js/1.5.0/flv.min.js"></script>
 <video id="videoElement"></video>
 <script>
     if (flvjs.isSupported()) {
@@ -678,6 +683,11 @@ https://github.com/illuspas/ffmpeg-hw-win32
 http://www.nodemedia.cn/products/node-media-client/win/
 
 # Thanks
+* smicroz edopachecod@***.com
+* 熊科辉
+* Ken Lee
+* Anonymous 	kasra.shahram@***.com
+* Erik Herz erikherz68@***.com
 * Javier Gomez javiergomezmora@***.com
 * trustfarm
 * Anonymous

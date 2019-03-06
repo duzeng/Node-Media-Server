@@ -145,8 +145,6 @@ class NodeRtmpSession {
     this.isPlaying = false;
     this.isIdling = false;
     this.isPause = false;
-    this.isFirstAudioReceived = false;
-    this.isFirstVideoReceived = false;
     this.isReceiveAudio = true;
     this.isReceiveVideo = true;
     this.metaData = null;
@@ -355,14 +353,13 @@ class NodeRtmpSession {
     let chunkSize = this.outChunkSize;
     let chunksOffset = 0;
     let payloadOffset = 0;
-
     let chunkBasicHeader = this.rtmpChunkBasicHeaderCreate(header.fmt, header.cid);
     let chunkBasicHeader3 = this.rtmpChunkBasicHeaderCreate(RTMP_CHUNK_TYPE_3, header.cid);
     let chunkMessageHeader = this.rtmpChunkMessageHeaderCreate(header);
     let useExtendedTimestamp = header.timestamp >= 0xffffff;
     let headerSize = chunkBasicHeader.length + chunkMessageHeader.length + (useExtendedTimestamp ? 4 : 0);
-
     let n = headerSize + payloadSize + Math.floor(payloadSize / chunkSize);
+
     if (useExtendedTimestamp) {
       n += Math.floor(payloadSize / chunkSize) * 4;
     }
@@ -482,6 +479,10 @@ class NodeRtmpSession {
           if (this.parserPacket.bytes >= this.parserPacket.header.length) {
             this.parserState = RTMP_PARSE_INIT;
             this.parserPacket.bytes = 0;
+            if(this.parserPacket.clock > 0xffffffff){
+              //TODO Shit code, rewrite chunkcreate
+              break;
+            }
             this.rtmpHandler();
           } else if (0 === (this.parserPacket.bytes % this.inChunkSize)) {
             this.parserState = RTMP_PARSE_INIT;
@@ -523,8 +524,8 @@ class NodeRtmpSession {
     this.parserPacket.header.cid = cid;
     this.rtmpChunkMessageHeaderRead();
 
-    if(this.parserPacket.header.type > RTMP_TYPE_METADATA) {
-      Logger.error("rtmp packet parse error.",this.parserPacket);
+    if (this.parserPacket.header.type > RTMP_TYPE_METADATA) {
+      Logger.error("rtmp packet parse error.", this.parserPacket);
       this.stop();
     }
 
@@ -628,12 +629,12 @@ class NodeRtmpSession {
 
   rtmpAudioHandler() {
     let payload = this.parserPacket.payload.slice(0, this.parserPacket.header.length);
-    if (!this.isFirstAudioReceived) {
-      let sound_format = payload[0];
-      let sound_type = sound_format & 0x01;
-      let sound_size = (sound_format >> 1) & 0x01;
-      let sound_rate = (sound_format >> 2) & 0x03;
-      sound_format = (sound_format >> 4) & 0x0f;
+    let sound_format = (payload[0] >> 4) & 0x0f;
+    let sound_type = payload[0] & 0x01;
+    let sound_size = (payload[0] >> 1) & 0x01;
+    let sound_rate = (payload[0] >> 2) & 0x03;
+
+    if (this.audioCodec == 0) {
       this.audioCodec = sound_format;
       this.audioCodecName = AUDIO_CODEC_NAME[sound_format];
       this.audioSamplerate = AUDIO_SOUND_RATE[sound_rate];
@@ -649,25 +650,25 @@ class NodeRtmpSession {
         this.audioSamplerate = 8000;
       }
 
-      if (sound_format == 10) {
-        //cache aac sequence header
-        if (payload[1] == 0) {
-          this.isFirstAudioReceived = true;
-          this.aacSequenceHeader = Buffer.alloc(payload.length);
-          payload.copy(this.aacSequenceHeader);
-          let info = AV.readAACSpecificConfig(this.aacSequenceHeader);
-          // Logger.log('[rtmp handleAudioMessage ]',info);
-          this.audioProfileName = AV.getAACProfileName(info);
-          this.audioSamplerate = info.sample_rate;
-          this.audioChannels = info.channels;
-        }
-      } else {
-        this.isFirstAudioReceived = true;
+      if (sound_format != 10 && !this.isIPC) {
+        Logger.log(`[rtmp publish] Handle audio. id=${this.id} streamPath=${this.publishStreamPath} sound_format=${sound_format} sound_type=${sound_type} sound_size=${sound_size} sound_rate=${sound_rate} codec_name=${this.audioCodecName} ${this.audioSamplerate} ${this.audioChannels}ch`);
       }
+    }
+
+    if (sound_format == 10 && payload[1] == 0) {
+      //cache aac sequence header
+      this.isFirstAudioReceived = true;
+      this.aacSequenceHeader = Buffer.alloc(payload.length);
+      payload.copy(this.aacSequenceHeader);
+      let info = AV.readAACSpecificConfig(this.aacSequenceHeader);
+      this.audioProfileName = AV.getAACProfileName(info);
+      this.audioSamplerate = info.sample_rate;
+      this.audioChannels = info.channels;
       if (!this.isIPC) {
         Logger.log(`[rtmp publish] Handle audio. id=${this.id} streamPath=${this.publishStreamPath} sound_format=${sound_format} sound_type=${sound_type} sound_size=${sound_size} sound_rate=${sound_rate} codec_name=${this.audioCodecName} ${this.audioSamplerate} ${this.audioChannels}ch`);
       }
     }
+
     let packet = RtmpPacket.create();
     packet.header.fmt = RTMP_CHUNK_TYPE_0;
     packet.header.cid = RTMP_CHANNEL_AUDIO;
@@ -700,40 +701,33 @@ class NodeRtmpSession {
           //websocket will throw a error if not set the cb when closed
         });
       }
-
     }
   }
 
   rtmpVideoHandler() {
     let payload = this.parserPacket.payload.slice(0, this.parserPacket.header.length);
-    let frame_type = payload[0];
-    let codec_id = frame_type & 0x0f;
-    frame_type = (frame_type >> 4) & 0x0f;
+    let frame_type = (payload[0] >> 4) & 0x0f;
+    let codec_id = payload[0] & 0x0f;
 
-    if (!this.isFirstVideoReceived) {
+    if (codec_id == 7 || codec_id == 12) {
+      //cache avc sequence header
+      if (frame_type == 1 && payload[1] == 0) {
+        this.avcSequenceHeader = Buffer.alloc(payload.length);
+        payload.copy(this.avcSequenceHeader);
+        let info = AV.readAVCSpecificConfig(this.avcSequenceHeader);
+        this.videoWidth = info.width;
+        this.videoHeight = info.height;
+        this.videoProfileName = AV.getAVCProfileName(info);
+        this.videoLevel = info.level;
+        this.rtmpGopCacheQueue = this.gopCacheEnable ? new Set() : null;
+        this.flvGopCacheQueue = this.gopCacheEnable ? new Set() : null;
+        //Logger.log(`[rtmp publish] avc sequence header`,this.avcSequenceHeader);
+      }
+    }
+
+    if (this.videoCodec == 0) {
       this.videoCodec = codec_id;
       this.videoCodecName = VIDEO_CODEC_NAME[codec_id];
-
-      if (codec_id == 7 || codec_id == 12) {
-        //cache avc sequence header
-        if (frame_type == 1 && payload[1] == 0) {
-          this.isFirstVideoReceived = true;
-          this.avcSequenceHeader = Buffer.alloc(payload.length);
-          payload.copy(this.avcSequenceHeader);
-          let info = AV.readAVCSpecificConfig(this.avcSequenceHeader);
-          // Logger.log('[rtmp handleVideoMessage ]',info);
-          if (this.videoWidth == 0 || this.videoHeight == 0) {
-            this.videoWidth = info.width;
-            this.videoHeight = info.height;
-          }
-          this.videoProfileName = AV.getAVCProfileName(info);
-          this.videoLevel = info.level;
-          this.rtmpGopCacheQueue = this.gopCacheEnable ? new Set() : null;
-          this.flvGopCacheQueue = this.gopCacheEnable ? new Set() : null;
-        }
-      } else {
-        this.isFirstVideoReceived = true;
-      }
       if (!this.isIPC) {
         Logger.log(`[rtmp publish] Handle video. id=${this.id} streamPath=${this.publishStreamPath} frame_type=${frame_type} codec_id=${codec_id} codec_name=${this.videoCodecName} ${this.videoWidth}x${this.videoHeight}`);
       }
@@ -748,7 +742,6 @@ class NodeRtmpSession {
     packet.header.timestamp = this.parserPacket.clock;
     let rtmpChunks = this.rtmpChunksCreate(packet);
     let flvTag = NodeFlvSession.createFlvTag(packet);
-
 
     //cache gop 
     if ((codec_id == 7 || codec_id == 12) && this.rtmpGopCacheQueue != null) {
@@ -778,7 +771,6 @@ class NodeRtmpSession {
         });
       }
     }
-
   }
 
   rtmpDataHandler() {
