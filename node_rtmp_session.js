@@ -4,16 +4,16 @@
 //  Copyright (c) 2018 Nodemedia. All rights reserved.
 //
 
-const QueryString = require('querystring');
-const AV = require('./node_core_av');
-const { AUDIO_SOUND_RATE, AUDIO_CODEC_NAME, VIDEO_CODEC_NAME } = require('./node_core_av');
+const QueryString = require("querystring");
+const AV = require("./node_core_av");
+const { AUDIO_SOUND_RATE, AUDIO_CODEC_NAME, VIDEO_CODEC_NAME } = require("./node_core_av");
 
-const AMF = require('./node_core_amf');
-const Handshake = require('./node_rtmp_handshake');
-const NodeCoreUtils = require('./node_core_utils');
-const NodeFlvSession = require('./node_flv_session');
-const context = require('./node_core_ctx');
-const Logger = require('./node_core_logger');
+const AMF = require("./node_core_amf");
+const Handshake = require("./node_rtmp_handshake");
+const NodeCoreUtils = require("./node_core_utils");
+const NodeFlvSession = require("./node_flv_session");
+const context = require("./node_core_ctx");
+const Logger = require("./node_core_logger");
 
 const N_CHUNK_STREAM = 8;
 const RTMP_VERSION = 3;
@@ -108,9 +108,10 @@ class NodeRtmpSession {
   constructor(config, socket) {
     this.config = config;
     this.socket = socket;
+    this.res = socket;
     this.id = NodeCoreUtils.generateNewSessionID();
     this.ip = socket.remoteAddress;
-    this.TAG = 'rtmp';
+    this.TAG = "rtmp";
 
     /**
      * 握手数据负载
@@ -139,7 +140,7 @@ class NodeRtmpSession {
     this.pingInterval = null;
 
     this.isIPC = false;
-    this.isLocal = this.ip === '127.0.0.1' || this.ip === '::1' || this.ip == '::ffff:127.0.0.1';
+    this.isLocal = this.ip === "127.0.0.1" || this.ip === "::1" || this.ip == "::ffff:127.0.0.1";
     this.isStarting = false;
     this.isPublishing = false;
     this.isPlaying = false;
@@ -151,13 +152,13 @@ class NodeRtmpSession {
     this.aacSequenceHeader = null;
     this.avcSequenceHeader = null;
     this.audioCodec = 0;
-    this.audioCodecName = '';
-    this.audioProfileName = '';
+    this.audioCodecName = "";
+    this.audioProfileName = "";
     this.audioSamplerate = 0;
     this.audioChannels = 1;
     this.videoCodec = 0;
-    this.videoCodecName = '';
-    this.videoProfileName = '';
+    this.videoCodecName = "";
+    this.videoProfileName = "";
     this.videoWidth = 0;
     this.videoHeight = 0;
     this.videoFps = 0;
@@ -171,29 +172,27 @@ class NodeRtmpSession {
     this.inAckSize = 0;
     this.inLastAck = 0;
 
-    this.appname = '';
+    this.appname = "";
     this.streams = 0;
 
     this.playStreamId = 0;
-    this.playStreamPath = '';
+    this.playStreamPath = "";
     this.playArgs = {};
 
     this.publishStreamId = 0;
-    this.publishStreamPath = '';
+    this.publishStreamPath = "";
     this.publishArgs = {};
 
     this.players = new Set();
-    this.writeBufferQueue = [];
+    this.numPlayCache = 0;
     context.sessions.set(this.id, this);
   }
 
   run() {
-    //客户端连接的socket配置
-    this.socket.on('data', this.onSocketData.bind(this));
-    this.socket.on('close', this.onSocketClose.bind(this));
-    this.socket.on('error', this.onSocketError.bind(this));
-    this.socket.on('timeout', this.onSocketTimeout.bind(this));
-    //当 socket 在 timeout 毫秒不活动之后将其设置为超时状态。默认 net.Socket 没有超时。
+    this.socket.on("data", this.onSocketData.bind(this));
+    this.socket.on("close", this.onSocketClose.bind(this));
+    this.socket.on("error", this.onSocketError.bind(this));
+    this.socket.on("timeout", this.onSocketTimeout.bind(this));
     this.socket.setTimeout(this.pingTimeout);
     this.isStarting = true;
   }
@@ -217,7 +216,7 @@ class NodeRtmpSession {
 
       if (!this.isIPC) {
         Logger.log(`[rtmp disconnect] id=${this.id}`);
-        context.nodeEvent.emit('doneConnect', this.id, this.connectCmdObj);
+        context.nodeEvent.emit("doneConnect", this.id, this.connectCmdObj);
       }
 
       context.sessions.delete(this.id);
@@ -228,14 +227,6 @@ class NodeRtmpSession {
   reject() {
     Logger.log(`[rtmp reject] id=${this.id}`);
     this.stop();
-  }
-
-  writeBuffer(data) {
-    this.writeBufferQueue.push(data);
-    if (this.writeBufferQueue.length >= 10) {
-      this.socket.write(Buffer.concat(this.writeBufferQueue));
-      this.writeBufferQueue.length = 0;
-    }
   }
 
   onSocketClose() {
@@ -316,12 +307,12 @@ class NodeRtmpSession {
     if (cid >= 64 + 255) {
       out = Buffer.alloc(3);
       out[0] = (fmt << 6) | 1;
-      out[1] = (cid - 64) & 0xFF;
-      out[2] = ((cid - 64) >> 8) & 0xFF;
+      out[1] = (cid - 64) & 0xff;
+      out[2] = ((cid - 64) >> 8) & 0xff;
     } else if (cid >= 64) {
       out = Buffer.alloc(2);
       out[0] = (fmt << 6) | 0;
-      out[1] = (cid - 64) & 0xFF;
+      out[1] = (cid - 64) & 0xff;
     } else {
       out = Buffer.alloc(1);
       out[0] = (fmt << 6) | cid;
@@ -365,7 +356,8 @@ class NodeRtmpSession {
     }
     if (!(payloadSize % chunkSize)) {
       n -= 1;
-      if (useExtendedTimestamp) { //TODO CHECK
+      if (useExtendedTimestamp) {
+        //TODO CHECK
         n -= 4;
       }
     }
@@ -413,10 +405,9 @@ class NodeRtmpSession {
         case RTMP_PARSE_INIT:
           this.parserBytes = 1;
           this.parserBuffer[0] = data[p + offset++];
-          //第一个字节除去最高两位后 表示chunk basic header要占用的字节 0表示要占2字节  1表示要占3字节 2表示chunk是控制信息和命令信息
-          if (0 === (this.parserBuffer[0] & 0x3F)) {
+          if (0 === (this.parserBuffer[0] & 0x3f)) {
             this.parserBasicBytes = 2;
-          } else if (1 === (this.parserBuffer[0] & 0x3F)) {
+          } else if (1 === (this.parserBuffer[0] & 0x3f)) {
             this.parserBasicBytes = 3;
           } else {
             this.parserBasicBytes = 1;
@@ -445,12 +436,12 @@ class NodeRtmpSession {
           break;
         case RTMP_PARSE_EXTENDED_TIMESTAMP:
           size = rtmpHeaderSize[this.parserPacket.header.fmt] + this.parserBasicBytes;
-          if (this.parserPacket.header.timestamp === 0xFFFFFF) size += 4;
+          if (this.parserPacket.header.timestamp === 0xffffff) size += 4;
           while (this.parserBytes < size && offset < bytes) {
             this.parserBuffer[this.parserBytes++] = data[p + offset++];
           }
           if (this.parserBytes >= size) {
-            if (this.parserPacket.header.timestamp === 0xFFFFFF) {
+            if (this.parserPacket.header.timestamp === 0xffffff) {
               extended_timestamp = this.parserBuffer.readUInt32BE(rtmpHeaderSize[this.parserPacket.header.fmt] + this.parserBasicBytes);
             } else {
               extended_timestamp = this.parserPacket.header.timestamp;
@@ -479,12 +470,12 @@ class NodeRtmpSession {
           if (this.parserPacket.bytes >= this.parserPacket.header.length) {
             this.parserState = RTMP_PARSE_INIT;
             this.parserPacket.bytes = 0;
-            if(this.parserPacket.clock > 0xffffffff){
+            if (this.parserPacket.clock > 0xffffffff) {
               //TODO Shit code, rewrite chunkcreate
               break;
             }
             this.rtmpHandler();
-          } else if (0 === (this.parserPacket.bytes % this.inChunkSize)) {
+          } else if (0 === this.parserPacket.bytes % this.inChunkSize) {
             this.parserState = RTMP_PARSE_INIT;
           }
           break;
@@ -500,7 +491,6 @@ class NodeRtmpSession {
       this.inLastAck = this.inAckSize;
       this.sendACK(this.inAckSize);
     }
-
   }
 
   rtmpPacketParse() {
@@ -509,9 +499,9 @@ class NodeRtmpSession {
     if (this.parserBasicBytes === 2) {
       cid = 64 + this.parserBuffer[1];
     } else if (this.parserBasicBytes === 3) {
-      cid = 64 + this.parserBuffer[1] + this.parserBuffer[2] << 8;
+      cid = (64 + this.parserBuffer[1] + this.parserBuffer[2]) << 8;
     } else {
-      cid = this.parserBuffer[0] & 0x3F;
+      cid = this.parserBuffer[0] & 0x3f;
     }
     let hasp = this.inPackets.has(cid);
     if (!hasp) {
@@ -528,7 +518,6 @@ class NodeRtmpSession {
       Logger.error("rtmp packet parse error.", this.parserPacket);
       this.stop();
     }
-
   }
 
   rtmpChunkMessageHeaderRead() {
@@ -596,8 +585,7 @@ class NodeRtmpSession {
       case RTMP_TYPE_FLEX_MESSAGE:
       case RTMP_TYPE_INVOKE:
         return this.rtmpInvokeHandler();
-      //Data Message（数据消息，Message Type ID＝15或18)
-      case RTMP_TYPE_FLEX_STREAM:// AMF3
+      case RTMP_TYPE_FLEX_STREAM: // AMF3
       case RTMP_TYPE_DATA: // AMF0
         return this.rtmpDataHandler();
     }
@@ -623,9 +611,7 @@ class NodeRtmpSession {
     }
   }
 
-  rtmpEventHandler() {
-
-  }
+  rtmpEventHandler() {}
 
   rtmpAudioHandler() {
     let payload = this.parserPacket.payload.slice(0, this.parserPacket.header.length);
@@ -651,7 +637,13 @@ class NodeRtmpSession {
       }
 
       if (sound_format != 10 && !this.isIPC) {
-        Logger.log(`[rtmp publish] Handle audio. id=${this.id} streamPath=${this.publishStreamPath} sound_format=${sound_format} sound_type=${sound_type} sound_size=${sound_size} sound_rate=${sound_rate} codec_name=${this.audioCodecName} ${this.audioSamplerate} ${this.audioChannels}ch`);
+        Logger.log(
+          `[rtmp publish] Handle audio. id=${this.id} streamPath=${
+            this.publishStreamPath
+          } sound_format=${sound_format} sound_type=${sound_type} sound_size=${sound_size} sound_rate=${sound_rate} codec_name=${this.audioCodecName} ${this.audioSamplerate} ${
+            this.audioChannels
+          }ch`
+        );
       }
     }
 
@@ -665,7 +657,13 @@ class NodeRtmpSession {
       this.audioSamplerate = info.sample_rate;
       this.audioChannels = info.channels;
       if (!this.isIPC) {
-        Logger.log(`[rtmp publish] Handle audio. id=${this.id} streamPath=${this.publishStreamPath} sound_format=${sound_format} sound_type=${sound_type} sound_size=${sound_size} sound_rate=${sound_rate} codec_name=${this.audioCodecName} ${this.audioSamplerate} ${this.audioChannels}ch`);
+        Logger.log(
+          `[rtmp publish] Handle audio. id=${this.id} streamPath=${
+            this.publishStreamPath
+          } sound_format=${sound_format} sound_type=${sound_type} sound_size=${sound_size} sound_rate=${sound_rate} codec_name=${this.audioCodecName} ${this.audioSamplerate} ${
+            this.audioChannels
+          }ch`
+        );
       }
     }
 
@@ -679,7 +677,7 @@ class NodeRtmpSession {
     let rtmpChunks = this.rtmpChunksCreate(packet);
     let flvTag = NodeFlvSession.createFlvTag(packet);
 
-    //cache gop 
+    //cache gop
     if (this.rtmpGopCacheQueue != null) {
       if (this.aacSequenceHeader != null && payload[1] === 0) {
         //skip aac sequence header
@@ -691,15 +689,27 @@ class NodeRtmpSession {
 
     for (let playerId of this.players) {
       let playerSession = context.sessions.get(playerId);
+
+      if (playerSession.numPlayCache === 0) {
+        playerSession.res.cork();
+      }
+
       if (playerSession instanceof NodeRtmpSession) {
         if (playerSession.isStarting && playerSession.isPlaying && !playerSession.isPause && playerSession.isReceiveAudio) {
           rtmpChunks.writeUInt32LE(playerSession.playStreamId, 8);
-          playerSession.writeBuffer(rtmpChunks);
+          playerSession.res.write(rtmpChunks);
         }
       } else if (playerSession instanceof NodeFlvSession) {
-        playerSession.res.write(flvTag, null, (e) => {
+        playerSession.res.write(flvTag, null, e => {
           //websocket will throw a error if not set the cb when closed
         });
+      }
+
+      playerSession.numPlayCache++;
+
+      if (playerSession.numPlayCache === 10) {
+        process.nextTick(() => playerSession.res.uncork());
+        playerSession.numPlayCache = 0;
       }
     }
   }
@@ -729,7 +739,11 @@ class NodeRtmpSession {
       this.videoCodec = codec_id;
       this.videoCodecName = VIDEO_CODEC_NAME[codec_id];
       if (!this.isIPC) {
-        Logger.log(`[rtmp publish] Handle video. id=${this.id} streamPath=${this.publishStreamPath} frame_type=${frame_type} codec_id=${codec_id} codec_name=${this.videoCodecName} ${this.videoWidth}x${this.videoHeight}`);
+        Logger.log(
+          `[rtmp publish] Handle video. id=${this.id} streamPath=${this.publishStreamPath} frame_type=${frame_type} codec_id=${codec_id} codec_name=${this.videoCodecName} ${
+            this.videoWidth
+          }x${this.videoHeight}`
+        );
       }
     }
 
@@ -743,7 +757,7 @@ class NodeRtmpSession {
     let rtmpChunks = this.rtmpChunksCreate(packet);
     let flvTag = NodeFlvSession.createFlvTag(packet);
 
-    //cache gop 
+    //cache gop
     if ((codec_id == 7 || codec_id == 12) && this.rtmpGopCacheQueue != null) {
       if (frame_type == 1 && payload[1] == 1) {
         this.rtmpGopCacheQueue.clear();
@@ -760,15 +774,27 @@ class NodeRtmpSession {
     // Logger.log(rtmpChunks);
     for (let playerId of this.players) {
       let playerSession = context.sessions.get(playerId);
+
+      if (playerSession.numPlayCache === 0) {
+        playerSession.res.cork();
+      }
+
       if (playerSession instanceof NodeRtmpSession) {
         if (playerSession.isStarting && playerSession.isPlaying && !playerSession.isPause && playerSession.isReceiveVideo) {
           rtmpChunks.writeUInt32LE(playerSession.playStreamId, 8);
-          playerSession.writeBuffer(rtmpChunks);
+          playerSession.res.write(rtmpChunks);
         }
       } else if (playerSession instanceof NodeFlvSession) {
-        playerSession.res.write(flvTag, null, (e) => {
+        playerSession.res.write(flvTag, null, e => {
           //websocket will throw a error if not set the cb when closed
         });
+      }
+
+      playerSession.numPlayCache++;
+
+      if (playerSession.numPlayCache === 10) {
+        process.nextTick(() => playerSession.res.uncork());
+        playerSession.numPlayCache = 0;
       }
     }
   }
@@ -778,7 +804,7 @@ class NodeRtmpSession {
     let payload = this.parserPacket.payload.slice(offset, this.parserPacket.header.length);
     let dataMessage = AMF.decodeAmf0Data(payload);
     switch (dataMessage.cmd) {
-      case '@setDataFrame':
+      case "@setDataFrame":
         if (dataMessage.dataObj) {
           this.audioSamplerate = dataMessage.dataObj.audiosamplerate;
           this.audioChannels = dataMessage.dataObj.stereo ? 2 : 1;
@@ -788,7 +814,7 @@ class NodeRtmpSession {
         }
 
         let opt = {
-          cmd: 'onMetaData',
+          cmd: "onMetaData",
           dataObj: dataMessage.dataObj
         };
         this.metaData = AMF.encodeAmf0Data(opt);
@@ -810,7 +836,7 @@ class NodeRtmpSession {
               playerSession.socket.write(rtmpChunks);
             }
           } else if (playerSession instanceof NodeFlvSession) {
-            playerSession.res.write(flvTag, null, (e) => {
+            playerSession.res.write(flvTag, null, e => {
               //websocket will throw a error if not set the cb when closed
             });
           }
@@ -825,69 +851,69 @@ class NodeRtmpSession {
     let invokeMessage = AMF.decodeAmf0Cmd(payload);
     // Logger.log(invokeMessage);
     switch (invokeMessage.cmd) {
-      case 'connect':
+      case "connect":
         this.onConnect(invokeMessage);
         break;
-      case 'releaseStream':
+      case "releaseStream":
         break;
-      case 'FCPublish':
+      case "FCPublish":
         break;
-      case 'createStream':
+      case "createStream":
         this.onCreateStream(invokeMessage);
         break;
-      case 'publish':
+      case "publish":
         this.onPublish(invokeMessage);
         break;
-      case 'play':
+      case "play":
         this.onPlay(invokeMessage);
         break;
-      case 'pause':
+      case "pause":
         this.onPause(invokeMessage);
         break;
-      case 'FCUnpublish':
+      case "FCUnpublish":
         break;
-      case 'deleteStream':
+      case "deleteStream":
         this.onDeleteStream(invokeMessage);
         break;
-      case 'closeStream':
+      case "closeStream":
         this.onCloseStream();
         break;
-      case 'receiveAudio':
+      case "receiveAudio":
         this.onReceiveAudio(invokeMessage);
         break;
-      case 'receiveVideo':
+      case "receiveVideo":
         this.onReceiveVideo(invokeMessage);
         break;
     }
   }
 
   sendACK(size) {
-    let rtmpBuffer = Buffer.from('02000000000004030000000000000000', 'hex');
+    let rtmpBuffer = Buffer.from("02000000000004030000000000000000", "hex");
     rtmpBuffer.writeUInt32BE(size, 12);
     this.socket.write(rtmpBuffer);
   }
 
   sendWindowACK(size) {
-    let rtmpBuffer = Buffer.from('02000000000004050000000000000000', 'hex');
+    let rtmpBuffer = Buffer.from("02000000000004050000000000000000", "hex");
     rtmpBuffer.writeUInt32BE(size, 12);
     this.socket.write(rtmpBuffer);
-  };
+  }
 
   setPeerBandwidth(size, type) {
-    let rtmpBuffer = Buffer.from('0200000000000506000000000000000000', 'hex');
+    let rtmpBuffer = Buffer.from("0200000000000506000000000000000000", "hex");
     rtmpBuffer.writeUInt32BE(size, 12);
     rtmpBuffer[16] = type;
     this.socket.write(rtmpBuffer);
-  };
+  }
 
   setChunkSize(size) {
-    let rtmpBuffer = Buffer.from('02000000000004010000000000000000', 'hex');
+    let rtmpBuffer = Buffer.from("02000000000004010000000000000000", "hex");
     rtmpBuffer.writeUInt32BE(size, 12);
     this.socket.write(rtmpBuffer);
-  };
+  }
 
   sendStreamStatus(st, id) {
-    let rtmpBuffer = Buffer.from('020000000000060400000000000000000000', 'hex');
+    let rtmpBuffer = Buffer.from("020000000000060400000000000000000000", "hex");
     rtmpBuffer.writeUInt16BE(st, 12);
     rtmpBuffer.writeUInt32BE(id, 14);
     this.socket.write(rtmpBuffer);
@@ -919,7 +945,7 @@ class NodeRtmpSession {
 
   sendStatusMessage(sid, level, code, description) {
     let opt = {
-      cmd: 'onStatus',
+      cmd: "onStatus",
       transId: 0,
       cmdObj: null,
       info: {
@@ -933,7 +959,7 @@ class NodeRtmpSession {
 
   sendRtmpSampleAccess(sid) {
     let opt = {
-      cmd: '|RtmpSampleAccess',
+      cmd: "|RtmpSampleAccess",
       bool1: false,
       bool2: false
     };
@@ -955,16 +981,16 @@ class NodeRtmpSession {
 
   respondConnect(tid) {
     let opt = {
-      cmd: '_result',
+      cmd: "_result",
       transId: tid,
       cmdObj: {
-        fmsVer: 'FMS/3,0,1,123',
+        fmsVer: "FMS/3,0,1,123",
         capabilities: 31
       },
       info: {
-        level: 'status',
-        code: 'NetConnection.Connect.Success',
-        description: 'Connection succeeded.',
+        level: "status",
+        code: "NetConnection.Connect.Success",
+        description: "Connection succeeded.",
         objectEncoding: this.objectEncoding
       }
     };
@@ -984,15 +1010,15 @@ class NodeRtmpSession {
 
   respondPlay() {
     this.sendStreamStatus(STREAM_BEGIN, this.playStreamId);
-    this.sendStatusMessage(this.playStreamId, 'status', 'NetStream.Play.Reset', 'Playing and resetting stream.');
-    this.sendStatusMessage(this.playStreamId, 'status', 'NetStream.Play.Start', 'Started playing stream.');
+    this.sendStatusMessage(this.playStreamId, "status", "NetStream.Play.Reset", "Playing and resetting stream.");
+    this.sendStatusMessage(this.playStreamId, "status", "NetStream.Play.Start", "Started playing stream.");
     this.sendRtmpSampleAccess();
   }
 
   onConnect(invokeMessage) {
-    invokeMessage.cmdObj.app = invokeMessage.cmdObj.app.replace('/', ''); //fix jwplayer
+    invokeMessage.cmdObj.app = invokeMessage.cmdObj.app.replace("/", ""); //fix jwplayer
     if (!this.isIPC) {
-      context.nodeEvent.emit('preConnect', this.id, invokeMessage.cmdObj);
+      context.nodeEvent.emit("preConnect", this.id, invokeMessage.cmdObj);
     }
     if (!this.isStarting) {
       return;
@@ -1011,7 +1037,7 @@ class NodeRtmpSession {
     this.respondConnect(invokeMessage.transId);
     if (!this.isIPC) {
       Logger.log(`[rtmp connect] id=${this.id} ip=${this.ip} app=${this.appname} args=${JSON.stringify(invokeMessage.cmdObj)}`);
-      context.nodeEvent.emit('postConnect', this.id, invokeMessage.cmdObj);
+      context.nodeEvent.emit("postConnect", this.id, invokeMessage.cmdObj);
     }
   }
 
@@ -1020,14 +1046,14 @@ class NodeRtmpSession {
   }
 
   onPublish(invokeMessage) {
-    if (typeof invokeMessage.streamName !== 'string') {
+    if (typeof invokeMessage.streamName !== "string") {
       return;
     }
-    this.publishStreamPath = '/' + this.appname + '/' + invokeMessage.streamName.split('?')[0];
-    this.publishArgs = QueryString.parse(invokeMessage.streamName.split('?')[1]);
+    this.publishStreamPath = "/" + this.appname + "/" + invokeMessage.streamName.split("?")[0];
+    this.publishArgs = QueryString.parse(invokeMessage.streamName.split("?")[1]);
     this.publishStreamId = this.parserPacket.header.stream_id;
     if (!this.isIPC) {
-      context.nodeEvent.emit('prePublish', this.id, this.publishStreamPath, this.publishArgs);
+      context.nodeEvent.emit("prePublish", this.id, this.publishStreamPath, this.publishArgs);
     }
     if (!this.isStarting) {
       return;
@@ -1037,17 +1063,17 @@ class NodeRtmpSession {
       let results = NodeCoreUtils.verifyAuth(this.publishArgs.sign, this.publishStreamPath, this.config.auth.secret);
       if (!results) {
         Logger.log(`[rtmp publish] Unauthorized. id=${this.id} streamPath=${this.publishStreamPath} streamId=${this.publishStreamId} sign=${this.publishArgs.sign} `);
-        this.sendStatusMessage(this.publishStreamId, 'error', 'NetStream.publish.Unauthorized', 'Authorization required.');
+        this.sendStatusMessage(this.publishStreamId, "error", "NetStream.publish.Unauthorized", "Authorization required.");
         return;
       }
     }
 
     if (context.publishers.has(this.publishStreamPath)) {
       Logger.log(`[rtmp publish] Already has a stream. id=${this.id} streamPath=${this.publishStreamPath} streamId=${this.publishStreamId}`);
-      this.sendStatusMessage(this.publishStreamId, 'error', 'NetStream.Publish.BadName', 'Stream already publishing');
+      this.sendStatusMessage(this.publishStreamId, "error", "NetStream.Publish.BadName", "Stream already publishing");
     } else if (this.isPublishing) {
       Logger.log(`[rtmp publish] NetConnection is publishing. id=${this.id} streamPath=${this.publishStreamPath} streamId=${this.publishStreamId}`);
-      this.sendStatusMessage(this.publishStreamId, 'error', 'NetStream.Publish.BadConnection', 'Connection already publishing');
+      this.sendStatusMessage(this.publishStreamId, "error", "NetStream.Publish.BadConnection", "Connection already publishing");
     } else {
       if (!this.isIPC) {
         Logger.log(`[rtmp publish] New stream. id=${this.id} streamPath=${this.publishStreamPath} streamId=${this.publishStreamId}`);
@@ -1055,7 +1081,7 @@ class NodeRtmpSession {
       context.publishers.set(this.publishStreamPath, this.id);
       this.isPublishing = true;
 
-      this.sendStatusMessage(this.publishStreamId, 'status', 'NetStream.Publish.Start', `${this.publishStreamPath} is now published.`);
+      this.sendStatusMessage(this.publishStreamId, "status", "NetStream.Publish.Start", `${this.publishStreamPath} is now published.`);
       for (let idlePlayerId of context.idlePlayers) {
         let idlePlayer = context.sessions.get(idlePlayerId);
         if (idlePlayer.playStreamPath === this.publishStreamPath) {
@@ -1067,22 +1093,21 @@ class NodeRtmpSession {
         this.publishArgs.ac = this.audioCodec;
         this.publishArgs.vc = this.videoCodec;
         if (!this.isIPC) {
-          context.nodeEvent.emit('postPublish', this.id, this.publishStreamPath, this.publishArgs);
+          context.nodeEvent.emit("postPublish", this.id, this.publishStreamPath, this.publishArgs);
         }
-      }, 1000);//TODO 只提交事件,不传音视频参数,由转码器自行分析
-
+      }, 1000); //TODO 只提交事件,不传音视频参数,由转码器自行分析
     }
   }
 
   onPlay(invokeMessage) {
-    if (typeof invokeMessage.streamName !== 'string') {
+    if (typeof invokeMessage.streamName !== "string") {
       return;
     }
-    this.playStreamPath = '/' + this.appname + '/' + invokeMessage.streamName.split('?')[0];
-    this.playArgs = QueryString.parse(invokeMessage.streamName.split('?')[1]);
+    this.playStreamPath = "/" + this.appname + "/" + invokeMessage.streamName.split("?")[0];
+    this.playArgs = QueryString.parse(invokeMessage.streamName.split("?")[1]);
     this.playStreamId = this.parserPacket.header.stream_id;
     if (!this.isIPC) {
-      context.nodeEvent.emit('prePlay', this.id, this.playStreamPath, this.playArgs);
+      context.nodeEvent.emit("prePlay", this.id, this.playStreamPath, this.playArgs);
     }
     if (!this.isStarting) {
       return;
@@ -1092,7 +1117,7 @@ class NodeRtmpSession {
       let results = NodeCoreUtils.verifyAuth(this.playArgs.sign, this.playStreamPath, this.config.auth.secret);
       if (!results) {
         Logger.log(`[rtmp play] Unauthorized. id=${this.id} streamPath=${this.playStreamPath}  streamId=${this.playStreamId} sign=${this.playArgs.sign}`);
-        this.sendStatusMessage(this.playStreamId, 'error', 'NetStream.play.Unauthorized', 'Authorization required.');
+        this.sendStatusMessage(this.playStreamId, "error", "NetStream.play.Unauthorized", "Authorization required.");
         return;
       }
     }
@@ -1101,7 +1126,7 @@ class NodeRtmpSession {
       if (!this.isIPC) {
         Logger.log(`[rtmp play] NetConnection is playing. id=${this.id} streamPath=${this.playStreamPath}  streamId=${this.playStreamId} `);
       }
-      this.sendStatusMessage(this.playStreamId, 'error', 'NetStream.Play.BadConnection', 'Connection already playing');
+      this.sendStatusMessage(this.playStreamId, "error", "NetStream.Play.BadConnection", "Connection already playing");
     } else {
       this.respondPlay();
     }
@@ -1113,7 +1138,6 @@ class NodeRtmpSession {
       this.isIdling = true;
       context.idlePlayers.add(this.id);
     }
-
   }
 
   onStartPlay() {
@@ -1168,15 +1192,15 @@ class NodeRtmpSession {
     this.isIdling = false;
     this.isPlaying = true;
     if (!this.isIPC) {
-      context.nodeEvent.emit('postPlay', this.id, this.playStreamPath, this.playArgs);
+      context.nodeEvent.emit("postPlay", this.id, this.playStreamPath, this.playArgs);
       Logger.log(`[rtmp play] Join stream. id=${this.id} streamPath=${this.playStreamPath}  streamId=${this.playStreamId} `);
     }
   }
 
   onPause(invokeMessage) {
     this.isPause = invokeMessage.pause;
-    let c = this.isPause ? 'NetStream.Pause.Notify' : 'NetStream.Unpause.Notify';
-    let d = this.isPause ? 'Paused live' : 'Unpaused live';
+    let c = this.isPause ? "NetStream.Pause.Notify" : "NetStream.Unpause.Notify";
+    let d = this.isPause ? "Paused live" : "Unpaused live";
     Logger.log(`[rtmp play] ${d} stream. id=${this.id} streamPath=${this.playStreamPath}  streamId=${this.playStreamId} `);
     if (!this.isPause) {
       this.sendStreamStatus(STREAM_BEGIN, this.playStreamId);
@@ -1205,12 +1229,11 @@ class NodeRtmpSession {
           packet.payload = publisher.avcSequenceHeader;
           packet.header.length = packet.payload.length;
           packet.header.stream_id = this.playStreamId;
-          packet.header.timestamp = publisher.parserPacket.clock;// ?? 0 or clock
+          packet.header.timestamp = publisher.parserPacket.clock; // ?? 0 or clock
           let chunks = this.rtmpChunksCreate(packet);
           this.socket.write(chunks);
         }
       }
-
     } else {
       this.sendStreamStatus(STREAM_EOF, this.playStreamId);
     }
@@ -1244,7 +1267,7 @@ class NodeRtmpSession {
           context.sessions.get(publisherId).players.delete(this.id);
         }
         if (!this.isIPC) {
-          context.nodeEvent.emit('donePlay', this.id, this.playStreamPath, this.playArgs);
+          context.nodeEvent.emit("donePlay", this.id, this.playStreamPath, this.playArgs);
         }
         this.isPlaying = false;
       }
@@ -1252,26 +1275,26 @@ class NodeRtmpSession {
         Logger.log(`[rtmp play] Close stream. id=${this.id} streamPath=${this.playStreamPath} streamId=${this.playStreamId}`);
       }
       if (this.isStarting) {
-        this.sendStatusMessage(this.playStreamId, 'status', 'NetStream.Play.Stop', 'Stopped playing stream.');
+        this.sendStatusMessage(this.playStreamId, "status", "NetStream.Play.Stop", "Stopped playing stream.");
       }
       this.playStreamId = 0;
-      this.playStreamPath = '';
+      this.playStreamPath = "";
     }
 
     if (invokeMessage.streamId == this.publishStreamId) {
       if (this.isPublishing) {
         if (!this.isIPC) {
           Logger.log(`[rtmp publish] Close stream. id=${this.id} streamPath=${this.publishStreamPath} streamId=${this.publishStreamId}`);
-          context.nodeEvent.emit('donePublish', this.id, this.publishStreamPath, this.publishArgs);
+          context.nodeEvent.emit("donePublish", this.id, this.publishStreamPath, this.publishArgs);
         }
         if (this.isStarting) {
-          this.sendStatusMessage(this.publishStreamId, 'status', 'NetStream.Unpublish.Success', `${this.publishStreamPath} is now unpublished.`);
+          this.sendStatusMessage(this.publishStreamId, "status", "NetStream.Unpublish.Success", `${this.publishStreamPath} is now unpublished.`);
         }
 
         for (let playerId of this.players) {
           let player = context.sessions.get(playerId);
           if (player instanceof NodeRtmpSession) {
-            player.sendStatusMessage(player.playStreamId, 'status', 'NetStream.Play.UnpublishNotify', 'stream is now unpublished.');
+            player.sendStatusMessage(player.playStreamId, "status", "NetStream.Play.UnpublishNotify", "stream is now unpublished.");
           } else {
             player.stop();
           }
@@ -1299,7 +1322,7 @@ class NodeRtmpSession {
         this.isPublishing = false;
       }
       this.publishStreamId = 0;
-      this.publishStreamPath = '';
+      this.publishStreamPath = "";
     }
   }
 }
