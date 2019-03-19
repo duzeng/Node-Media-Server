@@ -2,20 +2,20 @@ const { NodeMediaServer } = require('./index');
 
 const config = {
   rtmp: {
-    port: 1935,
+    port: 12935,
     chunk_size: 60000,
     gop_cache: true,
     ping: 60,
     ping_timeout: 30
   },
   http: {
-    port: 8000,
+    port: 18000,
     webroot: './public',
     mediaroot: './media',
     allow_origin: '*'
   },
   https: {
-    port: 8443,
+    port: 18443,
     key: './privatekey.pem',
     cert: './certificate.pem',
   },
@@ -23,9 +23,9 @@ const config = {
     api: true,
     api_user: 'admin',
     api_pass: 'admin',
-    play: false,
-    publish: false,
-    secret: 'nodemedia2017privatekey'
+    play: true,
+    publish: true,
+    secret: 'rushstreaminggo@405A'
   },
 };
 
