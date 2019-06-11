@@ -10,39 +10,27 @@
 A Node.js implementation of RTMP/HTTP-FLV/WS-FLV/HLS/DASH Media Server  
 [中文介绍](https://github.com/illuspas/Node-Media-Server/blob/master/README_CN.md)
 
+![admin](https://raw.githubusercontent.com/illuspas/resources/master/img/admin_panel_dashboard.png)
+![preview](https://raw.githubusercontent.com/illuspas/resources/master/img/admin_panel_streams_preview.png)
+
+
 **If you like this project you can support me.**  
 <a href="https://www.buymeacoffee.com/illuspas" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/white_img.png" alt="Buy Me A Coffee" style="height: 41px !important;width: 174px !important;box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;-webkit-box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;" ></a>
 
 # Features
  - Cross platform support Windows/Linux/Unix
- - Support H.264/H.265/AAC/MP3/SPEEX/NELLYMOSER
+ - Support H.264/H.265/AAC/MP3/SPEEX/NELLYMOSER/G.711
  - Support GOP cache
  - Support remux to LIVE-HTTP-FLV,Support [flv.js](https://github.com/Bilibili/flv.js) playback
  - Support remux to LIVE-WebSocket-FLV,Support [flv.js](https://github.com/Bilibili/flv.js) playback
  - Support remux to HLS/DASH/MP4
- - Support remux to HLS/DASH/MP4 automatic transcoding to aac
  - Support xycdn style authentication
  - Support event callback
  - Support https/wss
  - Support Server Monitor
  - Support Rtsp/Rtmp relay
- - Support multicore cluster mode
- 
- 
-# Todo 
-- [x] support record stream 
-- [x] support transcode
-- [x] support low latency hls
-- [x] server and streams status
-- [ ] server monitor frontend
-- [x] on_connect/on_publish/on_play/on_done event callback
-- [ ] multi resolution transcoding 
-- [ ] hardware acceleration transcoding. 
-- [x] rtmp/rtsp relay with ffmpeg
-- [ ] admin panel
-- [ ] zerolatency rtmp/rtsp relay without ffmpeg
-- [ ] support webrtc 
- 
+ - Support api control relay
+  
 # Usage 
 ## docker version (only_linux_x64)
 ```bash
@@ -524,7 +512,7 @@ var nms = new NodeMediaServer(config)
 nms.run();
 ```
 
-# Remux to HLS/DASH live stream with audio transcode
+# Remux to RTMP/HLS/DASH live stream with audio transcode
 ```js
 const NodeMediaServer = require('node-media-server');
 
@@ -550,6 +538,8 @@ const config = {
         vcParam: [],
         ac: "aac",
         acParam: ['-ab', '64k', '-ac', '1', '-ar', '44100'],
+        rtmp:true,
+        rtmpApp:'live2',
         hls: true,
         hlsFlags: '[hls_time=2:hls_list_size=3:hls_flags=delete_segments]',
         dash: true,
@@ -562,6 +552,8 @@ const config = {
 var nms = new NodeMediaServer(config)
 nms.run();
 ```
+>Remux to RTMP cannot use the same app name
+
 
 # Record to MP4
 ```JS
