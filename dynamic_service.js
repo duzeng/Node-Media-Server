@@ -10,6 +10,8 @@ class DynamicService {
     this.context.nodeEvent.on('donePlay', this.onDonePlay.bind(this)); 
   }
 
+  stop(){}
+  
   onPrePublish(id, streamPath, args){
   //TODO 处理动态推流
     if (args.mode && args.mode===DYNAMIC_MODE){
