@@ -12,6 +12,7 @@ const NodeTransServer = require('./node_trans_server');
 const NodeRelayServer = require('./node_relay_server');
 const context = require('./node_core_ctx');
 const Package = require("./package.json");
+const DynamicService = require('./dynamic_service');
 
 class NodeMediaServer {
   /**
@@ -59,6 +60,9 @@ class NodeMediaServer {
       }
     }
 
+    this.dyService= new DynamicService(context);
+    this.dyService.run();
+
     process.on('uncaughtException', function (err) {
       Logger.error('uncaughtException', err);
     });
@@ -101,11 +105,15 @@ class NodeMediaServer {
     if (this.nls) {
       this.nls.stop();
     }
+    if (this.dyService) {
+      this.dyService.stop();
+    }
   }
 
   getSession(id) {
     return context.sessions.get(id);
   }
+ 
 }
 
 module.exports = NodeMediaServer
